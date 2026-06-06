@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>June Bike Trip: Valencia to Toulouse</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #wrap { display:flex; height:100vh; flex-wrap:wrap; }
+  #map { flex:1 1 380px; min-width:320px; }
+  #side { width:320px; flex:0 0 320px; overflow-y:auto; background:#faf7f2; border-left:1px solid #e6ddcf; box-sizing:border-box; padding:18px 18px 40px; }
+  h1 { font-size:18px; margin:0 0 2px; color:#1c2b3a; }
+  .sub { font-size:12px; color:#6b7280; margin:0 0 16px; }
+  .leg { border-left:3px solid #d35400; padding:4px 0 14px 12px; margin-left:6px; position:relative; cursor:pointer; }
+  .leg:last-child { border-left-color:transparent; }
+  .leg:hover .stop { color:#d35400; }
+  .dot { position:absolute; left:-8px; top:3px; width:12px; height:12px; border-radius:50%; background:#d35400; border:2px solid #fff; box-shadow:0 0 0 1px #d35400; }
+  .stop { font-weight:600; font-size:14px; color:#1c2b3a; }
+  .date { font-size:11px; color:#d35400; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .note { font-size:12px; color:#555; margin-top:2px; }
+  .dist { display:inline-block; margin-top:4px; font-size:11px; background:#fdebd0; color:#a04000; padding:1px 7px; border-radius:10px; }
+  .total { margin-top:14px; font-size:12px; color:#444; background:#fff; border:1px solid #e6ddcf; border-radius:8px; padding:10px 12px; }
+  .legend { font-size:11px; color:#6b7280; margin-top:12px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="map"></div>
+  <div id="side">
+    <h1>Bike trip across Spain</h1>
+    <p class="sub">June 7–18 · Valencia → Toulouse · up the coast, over the Pyrenees</p>
+    <div id="legs"></div>
+    <div class="total"><strong>Riding distance noted:</strong> ~150 km (day 7) + 200 km (Girona→Andorra) + 276 km (Andorra→Toulouse), plus the coast and Girona legs.</div>
+    <p class="legend">Click a stop in the list or a numbered pin on the map. Dashed segment = ride + train.</p>
+  </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  var stops = [
+    { name:"Valencia", date:"Sun 7 Jun", coord:[39.4699,-0.3763], note:"Leave Valencia, ride + train", dist:"150 km" },
+    { name:"Vinaròs", date:"Sun 7 Jun", coord:[40.4699,0.4753], note:"Coastal stop en route north", dist:"" },
+    { name:"Barcelona", date:"Mon 8 Jun", coord:[41.3851,2.1734], note:"Rest day in Barcelona", dist:"" },
+    { name:"Girona", date:"Wed 10–11 Jun", coord:[41.9794,2.8214], note:"Ride to Girona, then a day there", dist:"" },
+    { name:"Andorra", date:"Fri 12–14 Jun", coord:[42.5063,1.5218], note:"Ride into Andorra, then a day there", dist:"200 km" },
+    { name:"Toulouse", date:"Mon 15–17 Jun", coord:[43.6047,1.4442], note:"Ride to Toulouse, then a day. AB flies home 18 Jun.", dist:"276 km" }
+  ];
+
+  var map = L.map('map');
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 18, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
+
+  var latlngs = stops.map(function(s){ return s.coord; });
+
+  // Draw each leg following real roads via the OSRM routing service.
+  // Falls back to a straight line if the request fails.
+  var allRoutePts = [];
+  function drawLeg(a, b, opts){
+    var url = 'https://router.project-osrm.org/route/v1/driving/'
+      + a[1] + ',' + a[0] + ';' + b[1] + ',' + b[0]
+      + '?overview=full&geometries=geojson';
+    return fetch(url)
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j && j.routes && j.routes[0]) {
+          var pts = j.routes[0].geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+          L.polyline(pts, opts).addTo(map);
+          allRoutePts = allRoutePts.concat(pts);
+        } else { throw new Error('no route'); }
+      })
+      .catch(function(){
+        L.polyline([a, b], opts).addTo(map);  // straight-line fallback
+        allRoutePts.push(a, b);
+      });
+  }
+
+  var legPromises = [];
+  // Leg 1 (Valencia -> Vinaròs) is ride + train: dashed grey
+  legPromises.push(drawLeg(stops[0].coord, stops[1].coord, { color:'#7f8c8d', weight:4, dashArray:'8,8' }));
+  // Remaining riding legs: solid orange
+  for (var k = 1; k < stops.length - 1; k++) {
+    legPromises.push(drawLeg(stops[k].coord, stops[k+1].coord, { color:'#d35400', weight:4 }));
+  }
+  Promise.all(legPromises).then(function(){
+    if (allRoutePts.length) { map.fitBounds(L.latLngBounds(allRoutePts).pad(0.12)); }
+  });
+
+  var markers = [];
+  stops.forEach(function(s, i){
+    var icon = L.divIcon({
+      className:'',
+      html:'<div style="background:#d35400;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:600 13px system-ui;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)">'+(i+1)+'</div>',
+      iconSize:[26,26], iconAnchor:[13,13]
+    });
+    var m = L.marker(s.coord, {icon:icon}).addTo(map);
+    m.bindPopup('<strong>'+(i+1)+'. '+s.name+'</strong><br>'+s.date+'<br>'+s.note+(s.dist?'<br>~'+s.dist:''));
+    markers.push(m);
+  });
+
+  map.fitBounds(L.latLngBounds(latlngs).pad(0.18));
+
+  var legsEl = document.getElementById('legs');
+  stops.forEach(function(s, i){
+    var d = document.createElement('div');
+    d.className = 'leg';
+    d.innerHTML = '<span class="dot"></span>'
+      + '<div class="date">'+s.date+'</div>'
+      + '<div class="stop">'+(i+1)+'. '+s.name+'</div>'
+      + '<div class="note">'+s.note+'</div>'
+      + (s.dist ? '<span class="dist">~'+s.dist+'</span>' : '');
+    d.addEventListener('click', function(){
+      map.setView(s.coord, 9);
+      markers[i].openPopup();
+    });
+    legsEl.appendChild(d);
+  });
+</script>
+</body>
+</html>
